@@ -1,0 +1,549 @@
+---
+title: "ASSIGNMENT1 TS"
+author: "Luca Capobianco & Francesco Russo"
+date: "2023-11-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+## Exercise 1: Stationary, but not Ergodic...
+**Stationary VS Ergodic**
+
+*Let $\epsilon_t \sim GWN(0, \sigma^2)$, with $GWN(0, \sigma^2)$ denoting a Gaussian white noise process with fixed variance σ2 and random mean $Z \sim U[-5,5]$, where $U$ is the Uniform distribution.
+Note that $Z$ is not indexed by $t$, thus it does not change with $t$ as done by $\epsilon_t$. Assume $\{\epsilon_t\}^∞_{t=−∞}$ and Z to be independent. Define now your process of interest $X_t = \theta X_{t-1} + \epsilon_t$. Then, based on the value of θ and the configuration of the initial state of the process determined by the observed $z$, the process can be weakly stationary but not ergodic; sometimes neither stationary or ergodic.*
+
+
+### Point a) ###
+*We first want to check whether and when the process is stationary. Using the definition of weak stationarity, prove that the process $\{X_t\}^∞_{t=−∞}$ has constant mean, variance and autocovariance function when $|\theta|<1$. Intuitively, if the process is stationary, then the value of $Z$ determines the equilibrium state of the process.*
+
+Take the process $$X_t = \theta X_{t-1} + \epsilon_t$$
+Since it is an $AR(1)$ process, then it is stationary whenever $|\theta|<1$.
+
+## Constant Mean
+
+\[
+X_t = \theta X_{t-1} + \epsilon_t
+\]
+
+\[
+X_{t-1} = \theta X_{t-2} + \epsilon_{t-1}
+\]
+
+\[
+X_{t-2} = \theta X_{t-3} + \epsilon_{t-2}
+\]
+
+\[
+X_{t-3} = \theta X_{t-4} + \epsilon_{t-3}
+\]
+
+\[
+E(X_t) = \theta E(X_{t-1} + z)
+\]
+
+\[
+E(X_{t-1}) = \theta E(X_{t-2} + z)
+\]
+
+\[
+E(X_t) = \theta^t E(X_{t-t} + \sum_{i=0}^{t-1} \theta^i z) = \theta^t z + \sum_{i=0}^{t-1} \theta^i z = \sum_{i=0}^{t} \theta^i z = \sum_{i = 0}^{\infty} \theta^i z = \frac{z}{1-\theta}
+\]
+
+Through this demonstration, using the geometric series, we demonstrate that the average is constant.
+
+#### ***Variance Function***
+
+  $$Var(X_t) = Var(\theta X_{t-1} + \epsilon_t) = \theta^2Var(X_{t-1}) + Var(\epsilon_t)$$
+  By the [Law of Total Variance](https://en.wikipedia.org/wiki/Law_of_total_variance):
+$$Var(X_t)=E_Z[Var_{X_t}(X_t|Z=z)] + Var_Z[E_{X_t}(X_t|Z=z)] = E_Z[\frac{\sigma^2}{1-\theta^2}] + Var_Z[E_{X_t}(\theta X_{t-1} + \epsilon_t|Z=z)]$$
+Under the assumption of stationarity, the conditional expected value is equal to the mean function previously computed.
+So what we get is:
+$$Var(X_t) = E_Z[\frac{\sigma^2}{1-\theta^2}] + Var_Z[\frac{Z}{1-\theta}] = \frac{\sigma^2}{1-\theta^2} + \frac{1}{(1-\theta)^2} Var_Z[Z]$$
+Since $Z$ has a Uniform distribution $Var(U) = \frac{(b-a)^2}{12}$:
+$$Var(X_t) = \frac{\sigma^2}{1-\theta^2} + \frac{1}{(1-\theta)^2}\frac{(5-(-5))^2}{12} = \frac{\sigma^2}{1-\theta^2} + \frac{1}{(1-\theta)^2}\frac{(10)^2}{12} = \frac{\sigma^2}{1-\theta^2} + \frac{1}{(1-\theta)^2}\frac{100}{12}$$
+with $0\le Var(X_t) < \infty, \ \forall |\theta|<1$.
+
+
+
+#### ***Autocovariance Function***
+
+$$E(X_{t-h}, X_t) = E(\theta X_{t-h}, X_{t-1}) + E(X_{t-h}, \epsilon_t)$$
+$$\gamma_h = \theta \ \gamma_{h-1} = \theta^2 \  \gamma_{h-2} = \ ... \ = \theta^h \ \gamma_0$$
+$$\begin{equation}
+\gamma_h = 
+    \begin{cases}
+      \gamma_0, \ for \ h=0 \\
+      \\
+      \theta^h \ \gamma_0, \ for \ h \ge 1
+    \end{cases}\,
+\end{equation}$$
+
+Finally, we can conclude that $\{X_t\}$ is stationary $\forall |\theta|<1$.
+
+
+### Analyzing Ergodicity ###
+
+In this R Markdown document, we will analyze the concept of ergodicity in the context of the process $\{X_t\}^∞_{t=−∞}$, where $X_t = \theta X_{t-1} + \epsilon_t$. Specifically, we'll focus on the behavior of the autocorrelation function ρh and show that it may not be strictly positive for all h when |θ| < 1, contrasting with the idea of ergodicity.
+
+#### ***Autocorrelation Function ρh***
+
+The autocorrelation function ρh is defined as:
+
+\[
+\rho_h = \frac{Cov(X_t, X_{t+h})}{\sqrt{Var(X_t)Var(X_{t+h})}} = \frac{\theta^h \gamma_0}{\sqrt{\gamma_0 \gamma_0}} = \frac{\theta^h \gamma_0}{\gamma_0} = \theta^h
+\]
+
+Where:
+- \(Cov(X_t, X_{t-h})\) is the covariance between the process at time t and the process at time t-h.
+- \(Var(X_t)\) is the variance of the process at time t.
+
+Ergodicity suggests that ρh should approach zero as h becomes large, indicating a unique long-term equilibrium. However, in this analysis, we'll show that ρh might not behave as expected.
+
+## Calculation of ρh
+
+Let's compute ρh for arbitrary h using the formula mentioned above. The key elements to consider are:
+
+1. The autocovariance between different lags, which is likely positive when |θ| < 1.
+2. The interaction between the white noise term $\epsilon_t$ and the autoregressive term $ \theta X_{t-1}$, which may vary in sign.
+
+We'll illustrate this concept with some R code and simulated data.
+
+### ***Point c)***
+*Using the R functions rnorm() and runif(), setup a suitable simulation study to double-check the previous result (start with $\sigma^2 = 1$ and $\theta = 0.9$). Remember to set the seed before simulating the data, say set.seed(123). Once you have generated a time series of length $T = 100$, use the ts() function to transform it in a time-series object.*
+
+***1.*** 
+*Plot the simulated series and comment on its stationarity.*
+
+```{r }
+library(tseries)
+# Set seed for reproducibility
+set.seed(123)
+# What do I need to simulate my time series?
+sigma_sqr=1
+sigma= sqrt(sigma_sqr)
+theta=0.9
+myT=100
+Z = runif(1,-5,5)
+mu0=Z
+eps = rnorm(n = myT, mean = Z, sd = sigma)
+plot(ts(eps))
+
+
+Y = rep(NA, myT)
+Y[1] = mu0
+
+
+for(t in 2:myT){
+  Y[t] = theta*Y[t-1] + eps[t]
+}
+
+my_ts=ts(Y)
+plot(my_ts, type = "l")
+acf(my_ts) ; pacf(my_ts)
+
+adf.test(my_ts) #accept null(unit root)
+
+kpss.test(my_ts) #reject null(stationarity)
+
+
+```
+
+
+---
+title: "Simulation Study for Ergodicity Analysis"
+output:
+  pdf_document: default
+---
+***2.*** 
+*Compute the empirical mean and variance and compare them with the expected theoretical values obtained in **Point a)**.*
+```{r}
+# Compute the empirical mean and compare with theoretical
+empirical_mean = mean(my_ts)
+empirical_mean
+theoretical_mean = Z/(1-theta)
+theoretical_mean
+
+# Compute the empirical variance and compare with theoretical
+empirical_var = var(my_ts)
+empirical_var
+theoretical_var = sigma_sqr/(1-(theta)^2)
+theoretical_var
+```
+
+***3.*** 
+*Show in a single plot that by repeating the generation process say 5 times, the process converges toward a different equilibrium state depending on the observed value $z$.*
+```{r}
+
+M = 5
+myT = 100
+
+# Create an empty matrix to store multiple simulations
+Y = matrix(NA, nrow = M, ncol = myT)
+colnames(Y) = paste0("t=", 0:(myT-1))
+rownames(Y) = paste0("sim=", 1:M)
+# Loop for multiple simulations
+for (m in 1:M) {
+  Z = runif(1, -5, 5)
+  mu0 = Z
+  eps = rnorm(n = myT, mean = Z, sd = sigma)
+  
+ 
+  Y[m,1] = Z
+  
+  for (t in 2:myT) {
+    Y[m,t] = theta * Y[m,t-1] + eps[t]
+  }
+  
+}
+
+# Plot the results
+
+
+plot(Y[1,], type = "l", ylim=c(-100,100), main="process generated 5 times changes depending on the observed Z")
+for (m in 2:M) {
+  points(Y[m, ],type = "l" )
+}
+
+```
+
+***4.*** 
+*Setup a more extensive Monte Carlo simulation study (with $M = 10000$) to evaluate the theoretical values. Compute again the mean and the variance (for each t, using the function apply()) of your process $\{X_t\}_t$. What can you say about the obtained values in relation to the theoretical ones?*
+
+```{r}
+set.seed(123)
+#set variables and matrix
+M2 = 10000
+Y2 = matrix(NA, ncol = myT, nrow = M2)
+colnames(Y2) = paste0("t=", 0:(myT-1))
+rownames(Y2) = paste0("sim=", 1:M2)
+
+# do the simulation with the for loops
+
+for(m in 1:M2){
+  Z = runif(1, min = -5, max = 5)
+  
+  
+  
+  Y2[m,1] = Z
+  for(t in 2:myT){
+    
+    eps = rnorm(n = myT, mean = Z, sd = sigma)
+    Y2[m,t] = theta * Y2[m,t-1] + eps[t]
+  }
+}
+
+
+# plot the result
+
+plot(Y2[1,], type = "l", ylim = c(-100, 100), main =" Monte Carlo simulation of 10000 series")
+
+for(m in 2:M2){
+  points(Y2[m,], type = "l")
+}
+
+lines(apply(Y2, 2, mean), col = "Red")
+
+
+empirical_mean_2 = apply(Y2, 2, mean)
+plot(empirical_mean_2, type="l")
+mean(empirical_mean_2)
+
+empirical_var_2 = apply(Y2, 2, var)
+plot(empirical_var_2, type="l")
+mean(empirical_var_2)
+
+theoretical_var_MC = ((sigma^2)/(1-theta^2)) + (1/(1-theta))^2*((5-(-5))^2)/12
+theoretical_var_MC
+
+
+```
+
+***5.*** 
+```{r}
+set.seed(123)
+myT2 = 101
+
+# ACF Analysis: Calculate correlation with the first column
+correlations = apply(Y2[, -1, drop = FALSE], 2, function(col) cor(Y2[, 1], col))
+
+# Plot correlations
+plot(1:(myT2-2), correlations[1:(myT2-2)], type = "l", ylim = c(-1, 1), xlab = "Column Index", ylab = "Correlation with First Column", col = 'purple')
+abline(h = 0, col = "gold", lty = 2)
+
+
+
+
+
+
+
+```
+
+
+
+
+***6.***
+*Comment on the estimator \( \hat{\rho}_h \) in relation to the underlying theory for obtaining consistent
+estimates*
+
+The estimator \( \hat{\rho}_h \) represents the sample autocorrelation function. In a theoretical context, for a stationary and ergodic process, as described in the initial problem, the autocorrelation at lag \( h \) (\( \rho_h \)) should converge to the true autocorrelation value as the sample size increases. 
+
+In a consistent estimator, \( \hat{\rho}_h \) should approach the theoretical \( \rho_h \) as the number of observations grows, showing a decreasing variance and convergence toward the true value.
+
+However, in cases where the process isn't ergodic, despite being stationary, the estimator may not converge or exhibit unstable behavior due to multiple possible equilibrium states. Therefore, \( \hat{\rho}_h \) might not consistently estimate the true autocorrelation, displaying fluctuations and not converging to a single value.
+
+
+***7.***
+*Play around with different values of θ (just a few, well chosen values, will be enough).*
+
+```{r}
+theta2 = 0.5
+M = 5
+myT = 100
+
+# Create an empty matrix to store multiple simulations
+Y = matrix(NA, nrow = M, ncol = myT)
+colnames(Y) = paste0("t=", 0:(myT-1))
+rownames(Y) = paste0("sim=", 1:M)
+# Loop for multiple simulations
+for (m in 1:M) {
+  Z = runif(1, -5, 5)
+  mu0 = Z
+  eps = rnorm(n = myT, mean = Z, sd = sigma)
+  
+ 
+  Y[m,1] = Z
+  
+  for (t in 2:myT) {
+    Y[m,t] = theta2 * Y[m,t-1] + eps[t]
+  }
+  
+}
+
+# Plot the results
+
+
+plot(Y[1,], type = "l", ylim=c(-100,100), main="theta = 0.5, process converges quickly")
+for (m in 2:M) {
+  points(Y[m, ],type = "l" )
+}
+
+
+```
+
+
+
+```{r}
+theta3 = 1
+M = 5
+myT = 100
+
+# Create an empty matrix to store multiple simulations
+Y = matrix(NA, nrow = M, ncol = myT)
+colnames(Y) = paste0("t=", 0:(myT-1))
+rownames(Y) = paste0("sim=", 1:M)
+# Loop for multiple simulations
+for (m in 1:M) {
+  Z = runif(1, -5, 5)
+  mu0 = Z
+  eps = rnorm(n = myT, mean = Z, sd = sigma)
+  
+ 
+  Y[m,1] = Z
+  
+  for (t in 2:myT) {
+    Y[m,t] = theta3 * Y[m,t-1] + eps[t]
+  }
+  
+}
+
+# Plot the results
+
+
+plot(Y[1,], type = "l", ylim=c(-100,100), main ="theta = 1 ")
+for (m in 2:M) {
+  points(Y[m, ],type = "l" )
+}
+```
+
+
+
+```{r}
+theta4 = 1.2
+M = 5
+myT = 100
+
+# Create an empty matrix to store multiple simulations
+Y = matrix(NA, nrow = M, ncol = myT)
+colnames(Y) = paste0("t=", 0:(myT-1))
+rownames(Y) = paste0("sim=", 1:M)
+# Loop for multiple simulations
+for (m in 1:M) {
+  Z = runif(1, -5, 5)
+  mu0 = Z
+  eps = rnorm(n = myT, mean = Z, sd = sigma)
+  
+ 
+  Y[m,1] = Z
+  
+  for (t in 2:myT) {
+    Y[m,t] = theta4 * Y[m,t-1] + eps[t]
+  }
+  
+}
+
+# Plot the results
+
+
+plot(Y[1,], type = "l", ylim=c(-100,100), main= "theta = 1.2, explosive behaviour")
+for (m in 2:M) {
+  points(Y[m, ],type = "l" )
+}
+
+
+```
+
+
+### **Exercise 2: Model Identification – MA or AR?** ###
+
+```{r}
+library(datasets)
+library(forecast)
+str(sunspot.year)
+tsdisplay(sunspot.year)
+```
+```{r}
+# Load the datasets package (if not already loaded)
+library(datasets)
+
+# Access the "sunspot.year" dataset
+data("sunspot.year")
+
+# Decompose the "sunspot.year" time series
+sunspot_decomposition <- decompose(ts(sunspot.year, frequency = 12), 'additive')
+
+# Plot the decomposed components
+autoplot(sunspot_decomposition)
+
+
+```
+
+### Part a: Comment on the patterns of this time series (trend, cyclicality, etc). ###
+By looking at the graph of this time series together with autocorrelation function and partial autocorrelation function, we can tell that: the time series shows an upward trend which is shown by the slow of the autocorrelation and there is a seasonality component with lag between 10,5 and 11. 
+the remainder in the decomposition ,made using the R function decompose, shows a seasonal behaviour, signaling that the seasonal part of the decomposition was not able to cath all the seasonal behaviour of the ts. it is still slightly better than if we had used a multiplicative type of decomposition.
+
+
+### Part b: Looking at the ACF and PACF, if you would have to choose an appropriate model among the AR and MA classes, what would be your choice? Why? ###
+
+The appropriate model for this time series is an AutoRegressive(2), because the ACF shows a slow decay and PACF cuts off after two lags. We also tried to find the optimal parameters to model it as an ARIMA and the autoregressive component suggested by R code is egual to 2.
+
+```{r}
+auto.arima(sunspot.year)
+```
+
+
+### Part c: Using the regression analysis to compute the coefficients of the lagged variables, assess and compare the output with the output of a PACF function in R. What do you notice? Do you think we could use the same (regression) procedure for an MA model? ###
+
+```{r}
+library(simts)
+library(forecast)
+myT = 500
+ar2_ts = gen_gts(myT, model = AR(phi = c(0.6, -0.2), sigma2=1))
+tsdisplay(ar2_ts, main = "AR(p = 2)")
+
+ma2_ts = gen_gts(myT, model = MA(theta = c(0.5, -0.5), sigma2=1))
+tsdisplay(ma2_ts, main = "MA(q = 2)")
+
+
+
+
+```
+
+
+ACF and MA Process:
+
+The ACF of an MA(q) process vanishes after the qth lag. In this case, q = 2, so the ACF of the MA(2) process vanishes after the second lag.
+For an MA process, the ACF cuts off abruptly after the qth lag, and the PACF gradually decreases.
+ACF and AR Process:
+
+For an AR process, the ACF decreases exponentially, but it does not cut off after a fixed number of lags. It gradually decreases to zero, and the ACF may be significant even after several lags.
+The PACF of an AR process cuts off after the order p, indicating a non-zero partial autocorrelation at lag p and zero for lags beyond p.
+Identifying Model Order:
+
+To identify the order p of an AR(p) model, you can typically look at the PACF. The order p is indicated by the lag where the PACF cuts off.
+To identify the order q of an MA(q) model, you can look at the ACF. The order q is indicated by the lag where the ACF cuts off.
+Sunspots Example:
+
+In the sunspots example, you can use the ACF and PACF to identify suitable AR or MA models by looking for cutoff points and significant lags, we can see that the PACF cuts off after the lag of order 2 suggesting to use an AR(2) process to model the series.
+
+```{r}
+PACF = 0 # Initialize an empty storage vector.
+for (j in 2:10) {
+# Pick up 10 lag points to prepare your covariates dataset
+cols = j
+rows = length(sunspot.year) - j + 1
+# The storage matrix for different groups of lagged vectors.
+lag = matrix(0, rows, j)
+for (i in 1:cols) {
+# Clipping progressively to get lagged ts's.
+lag[, i] = sunspot.year[i:(i + rows - 1)]
+}
+lag = as.data.frame(lag)
+# Running an OLS for every group.
+fit = lm(lag$V1 ~ . - 1, data = lag)
+# Getting the slope for the last lagged ts.
+PACF[j] = coef(fit)[j - 1]
+}
+PACF
+```
+
+```{r}
+PACF = 0 # Initialize an empty storage vector.
+for (j in 2:10) {
+# Pick up 10 lag points to prepare your covariates dataset
+cols = j
+rows = length(ar2_ts) - j + 1
+# The storage matrix for different groups of lagged vectors.
+lag = matrix(0, rows, j)
+for (i in 1:cols) {
+# Clipping progressively to get lagged ts's.
+lag[, i] = ar2_ts[i:(i + rows - 1)]
+}
+lag = as.data.frame(lag)
+# Running an OLS for every group.
+fit = lm(lag$V1 ~ . - 1, data = lag)
+# Getting the slope for the last lagged ts.
+PACF[j] = coef(fit)[j - 1]
+}
+
+PACF
+```
+
+```{r}
+PACF = 0 # Initialize an empty storage vector.
+for (j in 2:10) {
+# Pick up 10 lag points to prepare your covariates dataset
+cols = j
+rows = length(ma2_ts) - j + 1
+# The storage matrix for different groups of lagged vectors.
+lag = matrix(0, rows, j)
+for (i in 1:cols) {
+# Clipping progressively to get lagged ts's.
+lag[, i] = ma2_ts[i:(i + rows - 1)]
+}
+lag = as.data.frame(lag)
+# Running an OLS for every group.
+fit = lm(lag$V1 ~ . - 1, data = lag)
+# Getting the slope for the last lagged ts.
+PACF[j] = coef(fit)[j - 1]
+}
+PACF
+```
+
+Comparing the output of this series of regression models with the output of the `PACF` function in R, you will find that they are identical. The regression procedure for calculating PACF using OLS provides the same results as the PACF function in R.
+
+As for MA models, you typically use the ACF to identify the order of the model. The regression procedure used for PACF is not applicable to MA models, as it is specifically designed for AR models. For MA models, you would analyze the ACF and use it to identify the order of the MA component.
