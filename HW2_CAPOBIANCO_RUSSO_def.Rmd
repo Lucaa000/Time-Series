@@ -1,0 +1,570 @@
+---
+title: "HW2"
+author: "luca capobianco & francesco russo"
+date: "2023-12-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(quantmod)
+library(PerformanceAnalytics)
+library(forecast)
+library(tseries)
+library(FinTS)
+library(rugarch)
+library(knitr)
+library(kableExtra)
+```
+
+## Exercise 1
+
+A case study of volatility modeling with the GARCH class for the Nairobi Securities Exchange (that is, Kenyan stock market) is presented in this paper, which is also uploaded as supporting information of this assignment. The authors cover the basic stylized facts on financial data and then apply symmetric and
+asymmetric GARCH variants to the stock returns.
+
+
+**Point a**
+
+*Read Section 2 of the paper and familiarize with the GARCH variants. Is there any variant you have not encountered yet? What is it useful for?*
+
+The GARCH models which we have not encountered during our lectures, which have been used in the reference paper are the GARCH-in-Mean (or GARCH-M) and the Power GARCH (pGARCH) models.
+
+A GARCH-in-Mean or GARCH-M model takes the form
+$$Y_t = μ + δ \ σ_t + a_t$$
+$$a_t = σ_t \ \epsilon_t$$
+$$σ^2_t = ω + \alpha \ a^2_{t-1} + β \ σ^2_{t−1}$$
+in which $\epsilon_t \overset{\mathrm{iid}}{\sim} (0, 1)$. 
+
+The GARCH-M model directly incorporates volatility as a regression variable. The parameter $\delta$ represents the risk premium, or
+reward for additional risk. Modern portfolio theory dictates that increased volatility leads to increased risk, requiring larger expected returns. The presence of volatility as a statistically significant predictor of returns is one of the primary contributors to serial correlation in historic return series ([see Course Textbook Ch. 14.16.1](https://elearning.uniroma1.it/pluginfile.php/1290316/mod_resource/content/1/%5BRuppert%20Matteson%5D%20Statistics%20and%20Data%20Analysis%20for%20Financial%20Engineering%20with%20R%20examples%202015%20Ed2.pdf)).
+
+In the following, this type of model will be omitted from our analysis methodology.
+
+Next, Ding, et al. [11] proposed a variant to asymmetric GARCH models and provided with power GARCH (PGARCH) models. Unlike the GARCH family, we are able to model both the conditional standard deviation as well as conditional variance. 
+
+The PGARCH (p, q) specification is as follows:
+$$\sigma^\delta_t = \sigma_0 + \sum_{i=1}^q{(|\epsilon_{t-i} - \gamma_i \ \epsilon_{t-i}|)^\delta + \sum^p_{i=1} \beta_i \ \sigma_{t-i}^\delta}$$
+where $\delta$ is the parameter for power term such that $\delta > 0$. For $\delta = 2$, the model simply becomes a standard GARCH model that allows for leverage effect.
+For $\delta = 1$, we deal with the model used to estimate the conditional standard deviation rather conditional variance.
+
+Note that an APARCH model is slightly different since the variance is defined as:
+$$\sigma_{t|t-1}^{\delta} = \omega + \sum_{i=1}^p \alpha(|r_{t-i}| - \gamma_i \ r_{t-i})^{\delta} + \sum_{j=1}^q \beta_j \ \sigma_{t-j}^{\delta}$$
+In our analysis, we will be using the APARCH model formulation (included in the rugarch package) in place of the pGARCH.
+
+**Point b**
+
+*Identify two assets of interest different from the one considered in the paper. In particular, choose one from the Cryptocurrency (some examples are provided [here](https://coinmarketcap.com/)) and one from the set of world indexes (examples are given [here](https://finance.yahoo.com/world-indices/)).*
+
+For this project, BitCoin, as a cryptocurrency, and FTSE-MIB, as an index for the Italian stock exchange, were chosen.
+
+We start off by importing all chosen data and selecting the relevant price series (in particular, we will consider [adjusted closing prices](https://www.investopedia.com/terms/a/adjusted_closing_price.asp), as the include relevant information concerning corporate actions, such as stock splits, dividends, and rights offerings).
+
+```{r Import Data, warning=FALSE}
+
+start_date ="2016-01-01"
+
+bitcoin = getSymbols("BTC-USD", from = start_date, to = '2023-12-10')
+FTSE_MIB = getSymbols("FTSEMIB.MI", from = start_date, to = '2023-12-10') 
+
+#check for and omit missing values
+sum(is.na(`BTC-USD`$`BTC-USD.Adjusted`))
+sum(is.na(FTSEMIB.MI$FTSEMIB.MI.Adjusted))
+
+btc = na.omit(`BTC-USD`$`BTC-USD.Adjusted`)
+FTSE_mib = na.omit(FTSEMIB.MI$FTSEMIB.MI.Adjusted)
+
+
+chartSeries(btc)
+chartSeries(FTSE_mib)
+
+```
+
+**Point c**
+
+*Using the R functions we worked in class with, in particular those from the rugarch package, try to replicate analogous statistics/procedures to those reported in the Section 3 of the paper on your asset choices. In addition to the different GARCH models, use also different distributions (Normal, Student-t, Skew t, GED). Figures and tables can be different in style but the basic statistical and time-series approaches should be as close as possible to those used in the paper. Of course, results will be different given the different set of data, and you should comment and justify all the obtained results.*
+
+Firstly, we must compute the returns of our price time series'. In particular, we compute the log-returns for our application.
+
+```{r Returns}
+log_ret_FTSE = diff(log(FTSE_mib))
+log_ret_bit = diff(log(btc))
+
+bitcoin_ret = na.omit(log_ret_bit)
+FTSE = na.omit(log_ret_FTSE)
+
+
+```
+
+Next, we illustrate data by graphing the analyzed returns and displaying the Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF).
+
+```{r  Plot Data }
+acf(bitcoin_ret)
+pacf(bitcoin_ret)
+
+acf(FTSE)
+pacf(FTSE)
+
+
+
+```
+
+As indicated earlier, the returns exhibit apparent lack of correlation (evidenced by the ACF rapidly approaching zero) and non-constant variance, as illustrated in the returns plot (which will be examined in greater detail shortly).
+
+The subsequent table provides a summary of statistics pertaining to both BitCoin and the FTSE-MIB index returns.
+
+```{r Data summary}
+SummaryBTC = matrix(data = c(mean(bitcoin_ret), median(bitcoin_ret), max(bitcoin_ret), min(bitcoin_ret), StdDev(bitcoin_ret), kurtosis(bitcoin_ret), skewness(bitcoin_ret), jarque.bera.test(bitcoin_ret)$p.value), nrow = 8, ncol = 1)
+rownames(SummaryBTC) = c("Mean", "Median", "Maximum", "Minimum", "Standard Deviation", "Kurtosis", "Skewness", "Jarque-Bera (p-value)")
+colnames(SummaryBTC) = c("Value")
+
+kable(SummaryBTC, format = "pipe", align = "c", caption = "Summary of Bitcoin Returns")
+hist(bitcoin_ret, breaks = 100, xlab = "BitCoin Log-Returns", main = "Histogram of Bitcoin Returns")
+
+
+SummaryFTSE = matrix(data = c(mean(FTSE), median(FTSE), max(FTSE), min(FTSE), StdDev(FTSE), kurtosis(FTSE), skewness(FTSE), jarque.bera.test(FTSE)$p.value), nrow = 8, ncol = 1)
+rownames(SummaryFTSE) = c("Mean", "Median", "Maximum", "Minimum", "Standard Deviation", "Kurtosis", "Skewness", "Jarque-Bera (p-value)")
+colnames(SummaryFTSE) = c("Value")
+
+kable(SummaryFTSE, format = "pipe", align = "c", caption = "Summary of FTSE-MIB Returns")
+hist(FTSE, breaks = 100, xlab = "FSTE-MIB Log-Returns", main = "Histogram of FTSE-MIB Returns")
+
+
+```
+
+As indicated in the table, both distributions are approximately centered around zero, and they exhibit leptokurtic characteristics, signifying heavy tails. This observation aligns with the stylized fact in financial data, affirming the non-Gaussian nature of returns distributions.
+
+Ultimately, we conducted the Jarque-Bera Test, yielding a p-value of zero. This result suggests the rejection of the null hypothesis $H_0$ of normality for the returns distributions of both FTSE-MIB and BitCoin.
+
+A table has been generated below, presenting the p-values obtained from various tests conducted on both FTSE-MIB and BitCoin return and price time series. Specifically, two tests were employed to identify the existence of unit roots (Augmented Dickey-Fuller Test and Phillips–Perron Test), along with a test to detect the presence of ARCH effects. For the latter, the R function ArchTest was utilized, which conducts a Lagrange Multiplier (LM) test for Autoregressive Conditional Heteroscedasticity.
+
+```{r, warning=FALSE}
+
+ADF_BTC = adf.test(btc)
+ADF_FTSE = adf.test(FTSE_mib)
+
+
+ADF_BTC_ret = adf.test(bitcoin_ret)
+ADF_FTSE_ret = adf.test(FTSE)
+
+PPtest_BTC = pp.test(btc)
+PPtest_BTC_ret = pp.test(bitcoin_ret)
+
+PPtest_FTSE = pp.test(FTSE_mib)
+PPtest_FTSE_ret = pp.test(FTSE)
+
+ARCHtest_BTC = ArchTest(btc)
+ARCHtest_BTC_ret = ArchTest(bitcoin_ret)
+
+ARCHtest_FTSE = ArchTest(FTSE_mib)
+ARCHtest_FTSE_ret = ArchTest(FTSE)
+
+
+
+
+
+```
+
+
+
+
+```{r }
+TestsBTC = matrix(data = c(ADF_BTC$p.value, ADF_BTC_ret$p.value, PPtest_BTC$p.value, PPtest_BTC_ret$p.value, ARCHtest_BTC$p.value, ARCHtest_BTC_ret$p.value), nrow = 2, ncol = 3)
+rownames(TestsBTC) = c("BitCoin Price", "Bitcoin Returns")
+colnames(TestsBTC) = c("Augmented Dickey-Fuller Test", "Phillips-Perron Test", "ARCH Test")
+
+kable(TestsBTC, format = "pipe", align = "c", caption = "p-values of BitCoin Tests for Stationarity & ARCH Effect")
+
+TestsFTSE = matrix(data = c(ADF_FTSE$p.value, ADF_FTSE_ret$p.value, PPtest_FTSE$p.value, PPtest_FTSE_ret$p.value, ARCHtest_FTSE$p.value, ARCHtest_FTSE_ret$p.value), nrow = 2, ncol = 3)
+rownames(TestsFTSE) = c("FTSE-MIB Price", "FTSE-MIB Returns")
+colnames(TestsFTSE) = c("Augmented Dickey-Fuller Test", "Phillips-Perron Test", "ARCH Test")
+
+kable(TestsFTSE, format = "pipe", align = "c", caption = "p-values of FTSE-MIB Tests for Stationarity & ARCH Effect")
+```
+
+* Price series: both the ADF and PP Tests signal the presence of unit roots, and a zero result from the ARCH Test implies the existence of heteroskedasticity (i.e., non-constant variance).;
+* Returns series: notably low p-values from both the ADF and PP Tests strongly indicate the rejection of the null hypothesis $H_0$ of unit roots. The findings regarding the ARCH effects test remain consistent with what was previously mentioned.
+
+
+We will now embark on the modeling of our time series utilizing GARCH models. GARCH models are commonly employed in the modeling of financial time series that display time-varying volatility and volatility clustering. As a reminder, we will thoroughly examine each model under consideration in the subsequent analysis.
+
+***Standard GARCH***: The initial model under consideration is the basic formulation of the Generalized Autoregressive Conditional Heteroskedasticity (GARCH) model, expressed as follows:
+
+$$r_t = \sigma_{t|t-1} \ \epsilon_t, \ \epsilon_t \sim WN(0, 1)$$
+$$\sigma_{t|t-1} = \omega \sum_{i=1}^p \alpha_i \ r_{t-i}^2 + \sum_{j=1}^q \beta_j \ \sigma_{t-j}^2$$
+***Asymmetric Power ARCH***: In certain financial time series, there is an observed phenomenon where large negative returns seem to have a more pronounced impact on increasing volatility compared to positive returns of equivalent magnitude, known as the leverage effect. In traditional ARCH and GARCH models, the square function $r^2$ is symmetric with respect to $r^t$. To address this and formulate asymmetric variants, the approach involves substituting the square function with a versatile class of non-negative functions, which encompasses asymmetric functions.
+
+This is achieved through the APARCH(p,q) model, denoting the Asymmetric Power ARCH:
+
+$$r_t = \sigma_{t|t-1} \ \epsilon_t, \ \epsilon_t \sim WN(0, 1)$$
+$$\sigma_{t|t-1}^{\delta} = \omega + \sum_{i=1}^p \alpha(|r_{t-i}| - \gamma_i \ r_{t-i})^{\delta} + \sum_{j=1}^q \beta_j \ \sigma_{t-j}^{\delta}$$
+where $\delta > 0$ and $−1 < \gamma_i < 1$ determines the leverage effect: with $\gamma_i > 0$, negative returns have a greater effect on volatility.
+
+
+***Exponential GARCH***: An alternative GARCH version designed to address asymmetry is the eGARCH(p,q) model. Represented using the indicator function $I(·)$, the formulation is as follows:
+
+$$r_t = \sigma_{t|t-1} \ \epsilon_t, \ \epsilon_t \sim WN(0, 1)$$
+$$log(\sigma_{t|t-1}^2) = \omega + \sum_{i=1}^p (\alpha_i \ \epsilon_{t-i} + \gamma_i(|\epsilon_{t-i}| - E(\epsilon_{t-i}))) + \sum_{j=1}^q \beta_j \ log(\sigma_{t-j}^2)$$
+where $\epsilon_{t-i} = \frac{r_{t-i}}{\sigma_{t-i|t-i-1}}$.
+The part $\gamma_i(|\epsilon_{t-i}| - E(\epsilon_{t-i}))$ determines the size effect and the term $\alpha_i \ \epsilon_{t-i}$ is the sign effect.
+
+
+***Threshold GARCH***: An alternative GARCH version designed to address asymmetry is the tGARCH(p,q) model.
+Denoting by $I(·)$ the indicator function, this is given by:
+
+$$r_t = \sigma_{t|t-1} \ \epsilon_t, \ \epsilon_t \sim WN(0, 1)$$
+$$\sigma^2_t = \omega + \sum^{p}_{i = 1} (\alpha_i \ r^2_{t-i} + \gamma_i \ r^2_{t-i} \ I(r_{t-i} < 0)) + \sum^{q}_{j = 1} \beta_j \sigma^2_{t-j}$$
+where $\delta > 0$ and $−1 < \gamma_i < 1$ determines the leverage effect: with $\gamma_i > 0$, negative returns have a greater effect on volatility. So the effect of previous return on conditional variance depends on its sign: it is $\alpha$ when $r_{t−i} \geq 0$, and it is $\alpha_i + \gamma_i$ when $r_{t−i} \lt 0$.
+
+
+```{r Garch function, AIC and BIC}
+
+GARCH_model <- function(returns, model, garchOrder = c(1, 1), submodel = NULL, armaOrder = c(0, 0), errorDistr, archm=F) {
+ GARCH_model_Spec = ugarchspec(variance.model = list(model = model,
+                                                      garchOrder = garchOrder, 
+                                                      submodel = submodel), 
+                                mean.model = list(armaOrder = armaOrder, archm=archm), 
+                                distribution.model = errorDistr)
+  
+  GARCH_model_Fit = ugarchfit(spec = GARCH_model_Spec, data = returns)
+}
+```
+
+
+
+```{r GARCH model, submodels and distributions}
+# List of GARCH model types
+ModelsPaper = c("sGARCH", "eGARCH", "fGARCH")
+
+# List of submodels
+SubmodelsPaper = c("TGARCH", "APARCH")
+
+# List of distribution types
+ErrorDistributions = c("norm", "std", "sstd", "ged")
+
+```
+
+
+
+
+
+```{r}
+AICs_BTC = matrix(NA, nrow = length(ModelsPaper)  + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(AICs_BTC) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Power GARCH","GARCH in mean")
+colnames(AICs_BTC) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+BICs_BTC = matrix(NA, nrow = length(ModelsPaper)  + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(BICs_BTC) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Power GARCH","GARCH in mean")
+colnames(BICs_BTC) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+
+# Loop for non-fGARCH models
+for (j in 1:length(ErrorDistributions)) {
+  for (i in 1:(length(ModelsPaper) - 1)) {
+    model = ModelsPaper[i]
+    
+    GARCH_fit = GARCH_model(returns = bitcoin_ret, model = model, errorDistr = ErrorDistributions[j])
+    AICs_BTC[i, j] = infocriteria(GARCH_fit)[1]  
+    BICs_BTC[i, j] = infocriteria(GARCH_fit)[2]
+    
+  }
+}
+
+# Loop for fGARCH models with submodels
+for (s in 1:length(SubmodelsPaper)) {
+  for (j in 1:length(ErrorDistributions)) {
+    model = "fGARCH"
+    submodel = SubmodelsPaper[s]
+    
+    GARCH_fit = GARCH_model(returns = bitcoin_ret, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    AICs_BTC[length(ModelsPaper)-1 + s, j] = infocriteria(GARCH_fit)[1]
+    BICs_BTC[length(ModelsPaper)-1 + s, j] = infocriteria(GARCH_fit)[2]
+    
+  }
+}
+
+# loop for garch in mean
+for (j in 1:length(ErrorDistributions)){
+  model = "sGARCH"
+  
+  GARCH_fit = GARCH_model(returns = bitcoin_ret, model = model, errorDistr = ErrorDistributions[j], archm=T)
+  AICs_BTC[5, j] = infocriteria(GARCH_fit)[1]  
+  BICs_BTC[5, j] = infocriteria(GARCH_fit)[2]
+   
+}
+
+
+
+
+```
+
+
+```{r}
+AICs_FTSE = matrix(NA, nrow = length(ModelsPaper) + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(AICs_FTSE) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Power GARCH", "GARCH in mean")
+colnames(AICs_FTSE) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+BICs_FTSE = matrix(NA, nrow = length(ModelsPaper) + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(BICs_FTSE) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Power GARCH", "GARCH in mean")
+colnames(BICs_FTSE) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+
+# Loop for non-fGARCH models
+for (j in 1:length(ErrorDistributions)) {
+  for (i in 1:(length(ModelsPaper) - 1)) {
+    model = ModelsPaper[i]
+    
+    GARCH_fit = GARCH_model(returns = FTSE, model = model, errorDistr = ErrorDistributions[j])
+    AICs_FTSE[i, j] = infocriteria(GARCH_fit)[1]  
+    BICs_FTSE[i, j] = infocriteria(GARCH_fit)[2]
+  
+  }
+}
+
+# Loop for fGARCH models with submodels
+for (s in 1:length(SubmodelsPaper)) {
+  for (j in 1:length(ErrorDistributions)) {
+    model = "fGARCH"
+    submodel = SubmodelsPaper[s]
+    
+    GARCH_fit = GARCH_model(returns = FTSE, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    AICs_FTSE[length(ModelsPaper)-1 + s, j] = infocriteria(GARCH_fit)[1]
+    BICs_FTSE[length(ModelsPaper)-1 + s, j] = infocriteria(GARCH_fit)[2]
+   
+  }
+}
+
+#loop for garch in mean
+for (j in 1:length(ErrorDistributions)){
+  model="sGARCH"
+  
+  GARCH_fit = GARCH_model(returns = FTSE, model = model, errorDistr = ErrorDistributions[j], archm=T)
+  AICs_FTSE[5,j] = infocriteria(GARCH_fit)[1]  
+  BICs_FTSE[5,j] = infocriteria(GARCH_fit)[2]
+}
+```
+
+
+
+
+
+```{r TABLES INFO CRITERIA}
+kable(AICs_BTC, format = "pipe", align = "c", caption = "BitCoin GARCH Models Fit AICs")
+kable(BICs_BTC, format = "pipe", align = "c", caption = "BitCoin GARCH Models Fit BICs")
+
+
+min_AIC <- min(AICs_BTC)
+min_BIC <- min(BICs_BTC)
+
+row_AIC <- rownames(AICs_BTC)[which(AICs_BTC == min_AIC, arr.ind = TRUE)[1, 1]]
+col_AIC <- colnames(AICs_BTC)[which(AICs_BTC == min_AIC, arr.ind = TRUE)[1, 2]]
+
+row_BIC <- rownames(BICs_BTC)[which(BICs_BTC == min_BIC, arr.ind = TRUE)[1, 1]]
+col_BIC <- colnames(BICs_BTC)[which(BICs_BTC == min_BIC, arr.ind = TRUE)[1, 2]]
+
+
+cat("Minimum AIC:               ", min_AIC, " at (", row_AIC, ", ", col_AIC, ")\n",
+    "Minimum BIC:               ", min_BIC, " at (", row_BIC, ", ", col_BIC, ")\n")
+    
+
+
+kable(AICs_FTSE, format = "pipe", align = "c", caption = "FTSE-MIB GARCH Models Fit AICs")
+kable(BICs_FTSE, format = "pipe", align = "c", caption = "FTSE-MIB GARCH Models Fit BICs")
+
+
+min_AIC_FTSE <- min(AICs_FTSE)
+min_BIC_FTSE <- min(BICs_FTSE)
+
+row_AIC_FTSE <- rownames(AICs_FTSE)[which(AICs_FTSE == min_AIC_FTSE, arr.ind = TRUE)[1, 1]]
+col_AIC_FTSE <- colnames(AICs_FTSE)[which(AICs_FTSE == min_AIC_FTSE, arr.ind = TRUE)[1, 2]]
+
+row_BIC_FTSE <- rownames(BICs_FTSE)[which(BICs_FTSE == min_BIC_FTSE, arr.ind = TRUE)[1, 1]]
+col_BIC_FTSE <- colnames(BICs_FTSE)[which(BICs_FTSE == min_BIC_FTSE, arr.ind = TRUE)[1, 2]]
+
+
+cat("Minimum AIC for FTSE:               ", min_AIC_FTSE, " at (", row_AIC_FTSE, ", ", col_AIC_FTSE, ")\n",
+    "Minimum BIC for FTSE:               ", min_BIC_FTSE, " at (", row_BIC_FTSE, ", ", col_BIC_FTSE, ")\n")
+    
+
+
+
+```
+
+Bitcoin:
+Minimum AIC and BIC:
+Upon analyzing various GARCH models for Bitcoin, it appears that the "Standard GARCH" model, combined with the "Generalized Error Distribution," stands out. Both the Akaike Information Criterion (AIC) and Bayesian Information Criterion (BIC) indicate that this particular configuration has the lowest values, suggesting it is the most efficient and preferred model among the options considered.
+
+
+FTSE-MIB:
+Minimum AIC and BIC:
+Similar to Bitcoin, for the FTSE-MIB data, the "Standard GARCH" model, paired with the "Skew Student's t" error distribution, emerges as the frontrunner. Both AIC and BIC are minimized for this combination, suggesting that it strikes a good balance between model complexity and explanatory power.
+
+
+In summary, both for Bitcoin and FTSE-MIB, the "Standard GARCH" model seems to be robust. However, the choice of the most suitable error distribution varies—Generalized Error Distribution for Bitcoin and Skew Student's t for FTSE-MIB. 
+
+```{r, best fit BITCOIN}
+
+BitCoinFitBest = GARCH_model(returns = bitcoin_ret, model = "fGARCH", submodel = "TGARCH", errorDistr = "std")
+
+par(mfrow = c(1, 2))
+plot(BitCoinFitBest, which = 8)
+plot(BitCoinFitBest, which = 9)
+```
+
+The optimal choice for the error distribution is revealed to be the Student's t distribution. This aligns with the previously mentioned observation of the non-Gaussian nature of financial data, indicating heavier tails compared to those assumed by a Normal distribution.
+
+Regarding the GARCH model, the most suitable match is found with the threshold GARCH. This model effectively captures the leverage effect inherent in financial data, signifying that market-related news asymmetrically influences financial data.
+
+```{r BEST FIT FTSE-MIB}
+FTSEFitBest = GARCH_model(returns = FTSE, model = "fGARCH", submodel = "TGARCH", errorDistr = "sstd")
+
+par(mfrow = c(1, 2))
+plot(FTSEFitBest, which = 8)
+plot(FTSEFitBest, which = 9)
+```
+
+The optimal choice for the error distribution is revealed to be the Skew Student's t distribution. The use of the skew Student's t distribution in modeling financial data is motivated by the need to account for asymmetry and fat tails in the distribution of returns.Financial returns often exhibit asymmetry, meaning that the distribution is not symmetric around the mean. The skewness parameter in the skew Student's t distribution allows for a flexible representation of this asymmetry, capturing the tendency of financial returns to have different shapes on the left and right sides of the distribution.Financial data can be prone to outliers or extreme observations. The skew Student's t distribution is robust in handling outliers, as it allows for the presence of these extreme values without significantly distorting the overall distribution.
+
+
+
+```{r RMSE BEST FIT FOR BITCOIN & FTSE-MIB}
+fit_BTC = GARCH_model(returns = bitcoin_ret, model = "fGARCH", submodel = "TGARCH", garchOrder = c(1, 1),armaOrder = c(0,0), errorDistr = "ged")
+residual_sim_BTC = fit_BTC@fit$residuals
+rmse_btc= sqrt(sum((residual_sim_BTC)^2/length(bitcoin_ret)))
+rmse_btc
+
+
+fit_FTSE = GARCH_model(returns = FTSE, model = "fGARCH", submodel = "TGARCH", garchOrder = c(1, 1),armaOrder = c(0,0), errorDistr = "sstd")
+residual_sim_FTSE= fit_FTSE@fit$residuals
+rmse_FTSE= sqrt(sum((residual_sim_FTSE)^2/length(FTSE)))
+rmse_FTSE
+
+```
+The root mean square errors (RMSE) for the GARCH models applied to Bitcoin and FTSE returns provide a quantitative measure of the models' predictive accuracy by assessing the average differences between their predicted and actual returns. The RMSE for Bitcoin returns, approximately 0.0376, indicates that the model's predictions deviate by around 3.76% from the observed Bitcoin returns, highlighting a moderate level of prediction error. In contrast, the RMSE for FTSE returns is smaller at about 0.0143, suggesting a more accurate fit, with an average deviation of approximately 1.43% from the observed FTSE returns. RMSE is a widely used metric in financial modeling, representing the square root of the average squared differences between predicted and actual values. The lower RMSE for FTSE underscores a relatively better performance of the GARCH model in capturing the volatility dynamics of FTSE returns compared to Bitcoin during the specified period
+
+**Point d**
+
+*Bonus point – What would be the best model choice if this would be driven by the VaR? Note: we may cover VaR in class, but, for reference, see also Section 19.2 of your book. To choose the best model, implement a backtesting procedure, directly available in the rugarch routine, to check which model has the lowest number of VaR violations.*
+
+
+
+
+
+```{r alpha level}
+alpha = 0.05
+```
+
+
+
+
+
+```{r }
+GARCH_spec <- function(returns, model, garchOrder = c(1, 1), submodel = NULL, armaOrder = c(0, 0), errorDistr) {
+  GARCH_model_Spec = ugarchspec(variance.model = list(model = model,
+                                                      garchOrder = garchOrder, 
+                                                      submodel = submodel), 
+                                mean.model = list(armaOrder = armaOrder), 
+                                distribution.model = errorDistr)
+}
+
+
+
+VaR_exc_BTC = matrix(NA, nrow = length(ModelsPaper) - 1 + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(VaR_exc_BTC) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Asymmetric Power ARCH")
+colnames(VaR_exc_BTC) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+
+for (j in 1:length(ErrorDistributions)) {
+  for (i in 1:(length(ModelsPaper) - 1)) {
+    model = ModelsPaper[i]
+    
+    cl = makePSOCKcluster(10)
+    GARCH_specification = GARCH_spec(returns = bitcoin_ret, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    GARCH_forecast = ugarchroll(GARCH_specification, bitcoin_ret, n.start = 1000, refit.every = 100,
+                                refit.window = "moving", solver = "hybrid", calculate.VaR = TRUE,
+                                VaR.alpha = 0.05, cluster = cl, keep.coef = TRUE)
+    
+    stopCluster(cl)
+    
+    VaRTest = VaRTest(alpha = alpha, actual = bitcoin_ret[1001:2900], VaR = GARCH_forecast@forecast$VaR$`alpha(5%)`)
+    VaR_exc_BTC[i, j] = (VaRTest$actual.exceed - VaRTest$expected.exceed)/length(bitcoin_ret)
+  }
+}
+
+# Loop for fGARCH models with submodels
+for (s in 1:length(SubmodelsPaper)) {
+  for (j in 1:length(ErrorDistributions)) {
+    model = "fGARCH"
+    submodel = SubmodelsPaper[s]
+    
+    cl = makePSOCKcluster(10)
+    GARCH_specification = GARCH_spec(returns = bitcoin_ret, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    GARCH_forecast = ugarchroll(GARCH_specification, bitcoin_ret, n.start = 1000, refit.every = 100,
+                                refit.window = "moving", solver = "hybrid", calculate.VaR = TRUE,
+                                VaR.alpha = 0.05, cluster = cl, keep.coef = TRUE)
+    
+    stopCluster(cl)
+    
+    VaRTest = VaRTest(alpha = alpha, actual = bitcoin_ret[1001:2900], VaR = GARCH_forecast@forecast$VaR$`alpha(5%)`)
+    VaR_exc_BTC[length(ModelsPaper)-1 + s, j] = (VaRTest$actual.exceed - VaRTest$expected.exceed)/length(bitcoin_ret)
+    
+  }
+}
+
+VaR_exc_BTC
+
+
+```
+
+
+
+```{r }
+VaR_exc_FTSE = matrix(NA, nrow = length(ModelsPaper) - 1 + length(SubmodelsPaper), ncol = length(ErrorDistributions))
+rownames(VaR_exc_FTSE) = c("Standard GARCH", "Exponential GARCH", "Threshold GARCH", "Asymmetric Power ARCH")
+colnames(VaR_exc_FTSE) = c("Normal", "Student's t", "Skew Student's t", "Generalized Error Distribution")
+
+
+for (j in 1:length(ErrorDistributions)) {
+  for (i in 1:(length(ModelsPaper) - 1)) {
+    model = ModelsPaper[i]
+    
+    cl = makePSOCKcluster(10)
+    GARCH_specification = GARCH_spec(returns = FTSE, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    GARCH_forecast = ugarchroll(GARCH_specification, FTSE, n.start = 1000, refit.every = 100,
+                                refit.window = "moving", solver = "hybrid", calculate.VaR = TRUE,
+                                VaR.alpha = 0.05, cluster = cl, keep.coef = TRUE)
+    
+    stopCluster(cl)
+    
+    VaRTest = VaRTest(alpha = alpha, actual = FTSE[1001:2020], VaR = GARCH_forecast@forecast$VaR$`alpha(5%)`)
+    VaR_exc_FTSE[i, j] = (VaRTest$actual.exceed - VaRTest$expected.exceed)/length(FTSE)
+  }
+}
+
+# Loop for fGARCH models with submodels
+for (s in 1:length(SubmodelsPaper)) {
+  for (j in 1:length(ErrorDistributions)) {
+    model = "fGARCH"
+    submodel = SubmodelsPaper[s]
+    
+    cl = makePSOCKcluster(10)
+    GARCH_specification = GARCH_spec(returns = FTSE, model = model, submodel = submodel, errorDistr = ErrorDistributions[j])
+    GARCH_forecast = ugarchroll(GARCH_specification, FTSE, n.start = 1000, refit.every = 100,
+                                refit.window = "moving", solver = "hybrid", calculate.VaR = TRUE,
+                                VaR.alpha = 0.05, cluster = cl, keep.coef = TRUE)
+    
+    stopCluster(cl)
+    
+    VaRTest = VaRTest(alpha = alpha, actual = FTSE[1001:2020], VaR = GARCH_forecast@forecast$VaR$`alpha(5%)`)
+    VaR_exc_FTSE[length(ModelsPaper)-1 + s, j] = (VaRTest$actual.exceed - VaRTest$expected.exceed)/length(FTSE)
+    
+  }
+}
+
+VaR_exc_FTSE
+```
+
+For the Bitcoin index, the optimal model when driven by Value at Risk (VaR) is the Exponential Generalized Autoregressive Conditional Heteroskedasticity (GARCH) with Distribution Error: Student's t. This choice is motivated by the need to account for the fat-tailed distribution and volatility clustering often observed in financial time series, aspects effectively captured by the Student's t distribution in the context of the GARCH framework.
+
+Similarly, for the FTSE-MIB index, the most suitable model under the influence of VaR is the Threshold GARCH with Distribution Error: Student's t. This model is preferred due to its ability to account for abrupt changes in volatility, which is a common characteristic in financial markets. The Student's t distribution is chosen to accommodate potential outliers and deviations from normality, ensuring a more robust representation of the underlying data distribution.
+
+In both cases, the incorporation of the VaR framework provides a risk management perspective by allowing for the estimation of potential losses under extreme market conditions. The chosen GARCH models, along with the specified distributional assumptions, contribute to a comprehensive and accurate representation of the dynamics in the respective financial indices.
